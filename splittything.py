@@ -18,6 +18,8 @@ class Person(pygame.sprite.Sprite):
 		pygame.sprite.Sprite.__init__(self) #call Sprite initializer
 		self.image, self.rect = load_image('person.png')
 
+	def update(self):
+		self.rect.center = [self.rect.center[0], self.rect.center[1]+1]
 
 pygame.init()
 screen = pygame.display.set_mode((800, 600))
