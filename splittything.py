@@ -10,7 +10,7 @@ def load_image(name):
 	except pygame.error, message:
 		print 'Cannot load image:', name
 		raise SystemExit, message
-	image = image.convert()
+	image = image.convert_alpha()
 	return image, image.get_rect()
 
 class Person(pygame.sprite.Sprite):
@@ -38,7 +38,14 @@ clock = pygame.time.Clock()
 
 while True:
 	clock.tick(60)
+	
     #Handle Input Events
 	for event in pygame.event.get():
 		if event.type == QUIT:
 			break
+	
+	allsprites.update()
+	
+	screen.blit(background, (0, 0))
+	allsprites.draw(screen)
+	pygame.display.flip()
