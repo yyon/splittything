@@ -5,13 +5,13 @@ from pygame.locals import *
 import os
 
 def load_image(name):
-    try:
-        image = pygame.image.load(name)
-    except pygame.error, message:
-        print 'Cannot load image:', name
-        raise SystemExit, message
-    image = image.convert()
-    return image, image.get_rect()
+	try:
+		image = pygame.image.load(name)
+	except pygame.error, message:
+		print 'Cannot load image:', name
+		raise SystemExit, message
+	image = image.convert()
+	return image, image.get_rect()
 
 class Person(pygame.sprite.Sprite):
 	def __init__(self):
@@ -39,6 +39,6 @@ clock = pygame.time.Clock()
 while True:
 	clock.tick(60)
     #Handle Input Events
-        for event in pygame.event.get():
-            if event.type == QUIT:
-                return
+	for event in pygame.event.get():
+		if event.type == QUIT:
+			break
