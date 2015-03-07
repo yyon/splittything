@@ -21,6 +21,14 @@ class Person(pygame.sprite.Sprite):
 	def update(self):
 		self.rect.center = [self.rect.center[0], self.rect.center[1]+1]
 
+class myrectangle(pygame.sprite.Sprite):
+	def __init__(self):
+		pygame.sprite.Sprite.__init__(self) #call Sprite initializer
+		self.image, self.rect = load_image('person.png')
+
+	def draw(self, screen):
+		#do stuff
+
 pygame.init()
 screen = pygame.display.set_mode((800, 600))
 
@@ -34,7 +42,7 @@ pygame.display.flip()
 
 person1 = Person()
 
-allsprites = pygame.sprite.RenderPlain((person1))
+allsprites = pygame.sprite.RenderPlain([person1])
 
 clock = pygame.time.Clock()
 
