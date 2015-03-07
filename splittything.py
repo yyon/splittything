@@ -10,7 +10,7 @@ def load_image(name):
 	except pygame.error, message:
 		print 'Cannot load image:', name
 		raise SystemExit, message
-	image = image.convert()
+	image = image.convert_alpha()
 	return image, image.get_rect()
 
 class Person(pygame.sprite.Sprite):
@@ -24,11 +24,11 @@ class Person(pygame.sprite.Sprite):
 class myrectangle(pygame.sprite.Sprite):
 	def __init__(self):
 		pygame.sprite.Sprite.__init__(self) #call Sprite initializer
-		self.image, self.rect = load_image('person.png')
+		self.rect = pygame.Rect(0, 0, 10, 10)
+		self.color = (255,0,0)
 
 	def draw(self, screen):
-		#TODO
-		# do stuff
+		pygame.draw.rect(screen,blue,self.rect)
 
 pygame.init()
 screen = pygame.display.set_mode((800, 600))
@@ -53,3 +53,10 @@ while True:
 	for event in pygame.event.get():
 		if event.type == QUIT:
 			break
+	
+	allsprites.update()
+
+	#Draw Everything
+	screen.blit(background, (0, 0))
+	allsprites.draw(screen)
+	pygame.display.flip()
