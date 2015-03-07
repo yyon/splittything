@@ -27,7 +27,8 @@ class myrectangle(pygame.sprite.Sprite):
 		self.image, self.rect = load_image('person.png')
 
 	def draw(self, screen):
-		#do stuff
+		#TODO
+		# do stuff
 
 pygame.init()
 screen = pygame.display.set_mode((800, 600))
