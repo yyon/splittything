@@ -4,6 +4,7 @@ import pygame
 from pygame.locals import *
 import os
 import copy
+import levels
 
 import os
 DVORAK = False
@@ -17,9 +18,6 @@ if os.name == 'posix':
 # Better graphics
 # Design levels
 # Level editor
-# Loading levels from files
-# background
-# flip sprite when walking backwards ( / walljump)
 # grabbing on to walls
 
 # move level loading from metalayer to level
@@ -31,13 +29,13 @@ if os.name == 'posix':
 # Slowness area
 # Trampoline
 # Stuff that interacts between the split people
+# checkpoints
 
 # Note: turn off cheat mode
 # Do some Bug Testing
 
 #Bugs
-# Enter to un-pause doesn't work sometimes
-# Immediately died after re-starting?
+# ...
 
 #Stuff we can do with more time
 # Animations
@@ -50,21 +48,26 @@ if os.name == 'posix':
 # Walljump
 # Death from sides obstacle (or just put it together)
 # Let pictures go outside their rectangles ( margins)
+# Loading levels from files
+# 3d animation
+# background
 
 
 
 #Constants
 
-SCREEN_SIZE = [1200, 1000]
+COORDS_HEIGHT = 1000.0
 
-CHEATY_MODE = True
+SCREEN_SIZE = [1600, 1000]
 
-defaultscale = 1000.0 / SCREEN_SIZE[1]
+CHEATY_MODE = False
+
+defaultscale = COORDS_HEIGHT / SCREEN_SIZE[1]
 
 dt = 1.0/60.0
 
 SLIDINGRECOVERYTIME = 0.5
-SLIDINGTIME = 1
+SLIDINGTIME = 2
 SPLITRECOVERYTIME = 1
 GRAVITY = 0.5
 RUNNINGSPEED = 10
@@ -87,13 +90,16 @@ if DVORAK:
 	KEYSLIDE = [[K_DOWN, K_o], [K_t]]
 	KEYLEFT = [[K_LEFT, K_a], [K_h]]
 	KEYRIGHT = [[K_RIGHT, K_e], [K_n]]
+	EDITORLEFT = [[K_LEFT, K_a]]
+	EDITORRIGHT = [[K_RIGHT, K_e]]
 else:
 	KEYSPLIT = [K_SPACE]
 	KEYJUMP = [[K_UP, K_w], [K_i]]
 	KEYSLIDE = [[K_DOWN, K_s], [K_k]]
 	KEYLEFT = [[K_LEFT, K_a], [K_j]]
 	KEYRIGHT = [[K_RIGHT, K_d], [K_l]]
-	
+	EDITORLEFT = [[K_LEFT, K_a]]
+	EDITORRIGHT = [[K_RIGHT, K_d]]
 
 # Loads image from filename
 def load_image(name):
@@ -151,24 +157,33 @@ class possprite(pygame.sprite.Sprite): # A sprite with a relative positioning sy
 		self.margins = [0,0,0,0] #left, right, bottom, top
 		
 		self.image = None
+		self.actualimg = None
+		self.scale = None
 		
 	def setmargins(self, left, right, bottom, top):
-		self.margins = [left, right, bottom, top];
+		self.margins = [left, right, bottom, top]
 		
 	def setimage(self, image, scale=None, size=None): # Set the sprites image
 		if scale == None: # Scale down the image if its too big
 			scale = 1
-		self.img = image
-		imgrect = self.img.get_rect()
+		self.actualimg = image
+		imgrect = self.actualimg.get_rect()
 		
 		if size != None: # Using size is the same as scale, but it sizes it so it will fit in a certain height
-			if size[0] != None: # Use size=[None, myheight] in the arguments
-				scale = size[0] / imgrect.width # not including margins
+			if size[1] != None: # Use size=[None, myheight] in the arguments
+				scale = float(size[1]) / imgrect.height # not including margins
 			else:
-				scale = size[1] / imgrect.height
-		self.image = pygame.transform.scale(self.img, roundlist([x*scale for x in self.layer.scaletoscreen(imgrect.size)]))
+				scale = float(size[0]) / imgrect.width
+		
+		self.scale = scale
+		
+		self.image = pygame.transform.scale(self.actualimg, roundlist([x*scale for x in self.layer.scaletoscreen(imgrect.size)]))
 		
 		self.rect = self.image.get_rect()
+		
+	def refreshimage(self):
+		if self.actualimg != None:
+			self.setimage(self.actualimg, scale=self.scale)
 		
 	def setinvisible(self, size): # Use invisible image instead of setimage
 		self.rect = pygame.Rect((0,0), size)
@@ -205,19 +220,30 @@ class possprite(pygame.sprite.Sprite): # A sprite with a relative positioning sy
 		pygame.sprite.Sprite.draw(self, screen)
 
 class layer(): # Each split person has a layer. A layer contains person+obstacles
-	def __init__(self, lvl, additionalscale = [1,1]):
+	def __init__(self, lvl, additionalscale = [1,1], hasperson=True):
 		self.level = lvl
 		
 		self.offset = [0,0]
 		self.layeroffset = [0,0]
-		self.scale = [defaultscale * additionalscale[0], defaultscale * additionalscale[1]]
+		
+		self.setadditionalscale(additionalscale)
 		
 		self.persongroup = pygame.sprite.Group()
 		self.obstacles = pygame.sprite.Group()
 		
-		self.person = person(self, [0,0])
+		self.animating = False
+		self.animatingbackwards = False
+		self.animationtimer = 0
+		self.animationbetween = None
 		
-		self.persongroup.add(self.person)
+		if hasperson:
+			self.person = person(self, [0,0])
+			
+			self.persongroup.add(self.person)
+			
+	def setadditionalscale(self, additionalscale = [1,1]):
+		self.additionalscale = additionalscale
+		self.scale = [defaultscale * additionalscale[0], defaultscale * additionalscale[1]]
 		
 	def setpersonpos(self, pos):
 		self.person.pos = pos
@@ -237,11 +263,18 @@ class layer(): # Each split person has a layer. A layer contains person+obstacle
 	def addsidedeathobstacle(self, pos, size, invisible=False, **kwargs):
 		self.obstacles.add(squareobstacle(self, pos, size, invisible=invisible))
 		halfsize = int(size[0] * 1.0/2.0)
-		newheight = size[1] - 20
-		if newheight < 0:
-			newheight = 0
+#		newheight = size[1] - 20
+#		if newheight < 0:
+#			newheight = 0
+		newheight = 0
 		self.obstacles.add(deathobstacle(self, [pos[0] - halfsize, pos[1]], [0, newheight], invisible=True))
 		self.obstacles.add(deathobstacle(self, [pos[0] + halfsize, pos[1]], [0, newheight], invisible=True))
+		self.obstacles.add(decoration(self, [pos[0] - halfsize - 4, pos[1]], [10, size[1]], img="spikes.png"))
+		self.obstacles.add(decoration(self, [pos[0] + halfsize + 4, pos[1]], [10, size[1]], img="reversedspikes.png"))
+	
+	def addbackground(self, imgname):
+		self.obstacles.add(backgroundobstacle(self, imgname, 0))
+		self.obstacles.add(backgroundobstacle(self, imgname, 1))
 		
 	def scaletocoords(self, scale):
 		return [scale[0] * self.scale[0], scale[1] * self.scale[1]]
@@ -259,14 +292,46 @@ class layer(): # Each split person has a layer. A layer contains person+obstacle
 		screen = self.scaletocoords(screen)
 		return screen
 		
+	def animate(self, fromlayeroffset, fromadditionalscale, tolayeroffset, toadditionalscale, backwards = False):
+		self.animating = True
+		self.animatingbackwards = backwards
+		self.animationtimer = 0
+		self.animationbetween = [fromlayeroffset, fromadditionalscale, tolayeroffset, toadditionalscale]
+	
+	def between(self, t, l1, l2):
+		return [l1[i] * (1-t) + l2[i] * (t) for i in range(len(l1))]
+	
 	def update(self):
-		self.obstacles.update()
-		self.persongroup.update()
+		if self.animating:
+			self.animationtimer += 0.1
+			fromlayeroffset, fromadditionalscale, tolayeroffset, toadditionalscale = self.animationbetween
+			if self.animationtimer >= 1:
+				self.animating = False
+				if self.animatingbackwards:
+					layeroffset = fromlayeroffset
+					additionalscale = fromadditionalscale
+				else:
+					layeroffset = tolayeroffset
+					additionalscale = toadditionalscale
+			else:
+				layeroffset = self.between(self.animationtimer, fromlayeroffset, tolayeroffset)
+				additionalscale = self.between(self.animationtimer, fromadditionalscale, toadditionalscale)
+			self.layeroffset = layeroffset
+			self.setadditionalscale(additionalscale)
+			
+			for obstacle in self.obstacles:
+				obstacle.refreshimage()
+			for person in self.persongroup:
+				person.refreshimage()
+		
 		self.offset[1] = -SCREEN_SIZE[1]
 		self.offset[0] = -self.scaletoscreen([self.level.minpersonpos() - LEFTBORDER, 0])[0]
 		layeroffset = self.scaletoscreen(self.layeroffset)
 		self.offset[0] += layeroffset[0]
 		self.offset[1] += layeroffset[1]
+		
+		self.obstacles.update()
+		self.persongroup.update()
 		
 	def draw(self, screen):
 		self.obstacles.draw(screen)
@@ -277,6 +342,7 @@ class layer(): # Each split person has a layer. A layer contains person+obstacle
 		
 	def win(self):
 		self.level.reset()
+		nextlevel()
 
 class metalayer(layer): # The layer when person is not split
 	def __init__(self, lvl):
@@ -285,7 +351,8 @@ class metalayer(layer): # The layer when person is not split
 		self.loadlevel()
 		
 	def loadlevel(self):
-		self.sample()
+		self.level.levelmethod(self)
+#		self.sample()
 #		self.makemetalayer()
 		
 #	def makemetalayer(self):
@@ -297,9 +364,19 @@ class metalayer(layer): # The layer when person is not split
 		for i in range(number):
 			newscale = 1 + 0.2 * (number - i - 1)
 			newlayer = layer(self.level, additionalscale=[newscale, newscale])
+			newlayer.actualadditionalscale = [newscale, newscale]
 			offsetdist = (number - i) - 1 # Subtract 1 here?
 			newlayer.layeroffset = [offsetdist * DISPLACEMENT[0], offsetdist * DISPLACEMENT[1]]
+			newlayer.actuallayeroffset = newlayer.layeroffset
 			self.level.layers.append(newlayer)
+		
+		newscale = 1 + 0.2 * (number)
+		offsetdist = number
+		self.level.background3dadditionalscale = [newscale, newscale]
+		self.level.background3ddisplacement = [offsetdist * DISPLACEMENT[0], offsetdist * DISPLACEMENT[1]]
+	
+	def setbackground(self, imgname):
+		self.level.setbackground(imgname)
 	
 	def getlayer(self, i):
 		if i == None:
@@ -331,45 +408,34 @@ class metalayer(layer): # The layer when person is not split
 		for lyr in self.getlayer(l):
 			lyr.addwinobstacle(*args, **kwargs)
 		layer.addwinobstacle(self, *args, **kwargs)
-	
-	def sample(self):
-		self.makelayers(2)
-		self.setpersonpos([0, 300])
-		
-		self.addobstacle(None, [200, 100], [2200,100])
-		self.addobstacle(None, [500, 400], [100,500], margins=[20, 20, 20, 20])
-		self.addobstacle(None, [100, 800], [100,500])
-#		self.addobstacle([250, 200], [100,100])
-		self.addwall(None, [1800, 400], [400, 300])
-		self.addobstacle(None, [4300, 100], [4000,100])
-		self.addsidedeathobstacle(None, [2800, 400], [100,300])
-		self.addsidedeathobstacle(None, [3300, 200], [100,100])
-		self.addsidedeathobstacle(None, [4100, 550], [100,100])
-		self.addsidedeathobstacle(None, [4100, 250], [100,200])
-		
-		self.addsidedeathobstacle(0, [5000, 250], [100,200])
-		self.addsidedeathobstacle(1, [5000, 455], [100,200])
-		
-		self.addobstacle(None, [5500, 350], [800,25])
-		self.adddeathobstacle(None, [0,0], [90000, 0], invisible=True)
-		self.adddeathobstacle(None, [5500,700], [500, 100])
-		self.addobstacle(0, [7000, 100], [1200,100])
-		self.addwinobstacle(None, [8000,700], [25, 1400], invisible=False)
 
 class level(): # Contains level information
-	def __init__(self):
+	def __init__(self, levelmethod):
 		self.meta = True
+		
+		self.levelmethod = levelmethod
 		
 		self.fog = pygame.Surface(SCREEN_SIZE)
 		self.fog.fill((255,255,255))
 		self.fog.set_alpha(FOG)
 		
+		self.backgroundlayer2d = None
+		self.backgroundlayer3d = None
+		
 		self.reset()
+		
+	def setbackground(self, imgname):
+		self.backgroundlayer2d = layer(self, hasperson=False)
+		self.backgroundlayer3d = layer(self, hasperson=False, additionalscale=self.background3dadditionalscale)
+		self.backgroundlayer3d.layeroffset = self.background3ddisplacement
+		self.backgroundlayer2d.addbackground(imgname)
+		self.backgroundlayer3d.addbackground(imgname)
 		
 	def reset(self):
 		self.layers = []
 		
 		self.metalayer = metalayer(self)
+		
 #		layer1 = layer(self)
 #		self.layers.append(layer1)
 
@@ -409,53 +475,94 @@ class level(): # Contains level information
 		
 		if self.meta:
 			self.metalayer.update()
+			if self.backgroundlayer2d != None:
+				self.backgroundlayer2d.update()
 		else:
 			for lyr in self.layers:
 				lyr.update()
+			if self.backgroundlayer3d != None:
+				self.backgroundlayer3d.update()
 	
 	def split(self):
 		if self.meta or self.splitrecoverytimer > SPLITRECOVERYTIME:
 			if not self.meta:
 				personpos = self.minperson().pos
+				runningdir = self.minperson().runningdir
+				velocity = self.minperson().velocity
 				self.metalayer.setpersonpos(personpos)
+				self.metalayer.person.runningdir = runningdir
+				self.metalayer.person.velocity = copy.copy(velocity)
+				for lyr in self.layers:
+					lyr.animate(lyr.actuallayeroffset, lyr.actualadditionalscale, [0,0], [1,1], backwards=True)
+				if self.backgroundlayer3d != None:
+					self.backgroundlayer3d.animate([0, 0], [1, 1], self.background3ddisplacement, self.background3dadditionalscale)
 			else:
 				personpos = self.metalayer.person.pos
+				runningdir = self.metalayer.person.runningdir
+				velocity = self.metalayer.person.velocity
 				for lyr in self.layers:
 					lyr.setpersonpos(personpos)
+					lyr.person.runningdir = runningdir
+					lyr.person.velocity = copy.copy(velocity)
+					lyr.animate([0,0], [1,1], lyr.actuallayeroffset, lyr.actualadditionalscale)
+				if self.backgroundlayer2d != None:
+					self.backgroundlayer2d.animate(self.background3ddisplacement, self.background3dadditionalscale, [0, 0], [1, 1])
 			
 			self.meta = not self.meta
 		
 	
 	def draw(self, screen):
 		if self.meta:
+			if self.backgroundlayer2d != None:
+				self.backgroundlayer2d.draw(screen)
+			for lyr in self.layers:
+				if lyr.animating:
+#					screen.blit(self.fog, (0, 0))
+					lyr.update()
+					lyr.draw(screen)
 			screen.blit(self.fog, (0, 0))
 			self.metalayer.draw(screen)
 		else:
+			if self.backgroundlayer3d != None:
+				self.backgroundlayer3d.draw(screen)
 			for lyr in self.layers:
 				screen.blit(self.fog, (0, 0))
 				lyr.draw(screen)
-		screen.blit(self.fog, (0, 0))
+#		screen.blit(self.fog, (0, 0))
 		
 
 class person(possprite):
 	def __init__(self, lyr, pos):
 		possprite.__init__(self, lyr, pos)
 		self.uprightimage = load_image('person.png')
-		self.slidingimage = load_image('sliding_person.png')
+		self.uprightimages = [load_image('person2-1.png'), load_image('person2-2.png'), load_image('person2-3.png')]
+		self.fallingimage = load_image('person2-falling.png')#, load_image('person2-falling2.png'), load_image('person2-falling3.png')]
+		self.slidingimage = load_image('sliding_person2.png')
+		self.wallimage = load_image('person2-wall.png')
+		self.divingimage = load_image('diving_person.png')
 		self.setimage(self.uprightimage, size=[None, STANDINGHEIGHT])
+		
+		self.margins = [10, 10, 10, 10]
+		
+		self.animindex = 0
 		
 		self.velocity = [0, 0] # variables
 		self.walltimer = 0
 		self.slidingtimer = 0
 		self.slidingrecoverytimer = 0
 		self.issliding = False
-		self.doslide = False
+#		self.doslide = False
 #		self.movingright = True
 		self.runningdir = 1
 		self.onwall = False
+		self.onground = False
+		self.doimageupdate = False
 		self.effects = []
 		
 		self.update()
+		
+	def updateimage(self):
+		self.doimageupdate = True
 		
 	def update(self):
 #		if self.movingright: # Running right
@@ -471,20 +578,45 @@ class person(possprite):
 		if self.issliding: # sliding timers
 			self.slidingtimer += dt
 			self.slidingrecoverytimer = 0
-			if self.slidingtimer >= SLIDINGTIME:
-				self.doslide = False
+			if psn.slidingtimer >= SLIDINGTIME:
+				self.issliding = False
+				self.updateimage()
 		else:
 			self.slidingtimer = 0
 			if self.slidingrecoverytimer < SLIDINGRECOVERYTIME:
 				self.slidingrecoverytimer += dt
 		
-		if self.issliding != self.doslide: # sliding
-			self.issliding = self.doslide
+#		if self.issliding != self.doslide: # sliding
+#		if self.doimageupdate:
+#			self.doimageupdate = False
+		if True:
+			
+			self.animindex = (self.animindex + 0.1) % 3
+			
+			height = None
+			image = None
 			
 			if self.issliding:
-				self.setimage(self.slidingimage, size=[None, SLIDINGHEIGHT])
+				if self.onground:
+					image = self.slidingimage
+					height = SLIDINGHEIGHT
+				else:
+					image = self.divingimage
+					height = SLIDINGHEIGHT
+			elif self.onwall:
+				image = self.wallimage
+				height = STANDINGHEIGHT
+			elif self.onground or WALLEFFECT in self.effects:
+				image = self.uprightimages[int(self.animindex)]
+				height = STANDINGHEIGHT
 			else:
-				self.setimage(self.uprightimage, size=[None, STANDINGHEIGHT])
+				image = self.fallingimage
+				height = STANDINGHEIGHT
+			
+			if self.runningdir == -1:
+				image = pygame.transform.flip(image, True, False)
+			
+			self.setimage(image, size=[None, height])
 			
 			self.move([0, oldrect.bottom - self.getrect().bottom])
 		
@@ -549,7 +681,6 @@ class person(possprite):
 		self.layer.gameover()
 		
 	def win(self):
-		pause("You won!\n\nPress Enter to continue to the next level")
 		self.layer.win()
 
 class obstacle(): # something other that a person
@@ -561,7 +692,7 @@ class obstacle(): # something other that a person
 		pass
 
 class squareobstacle(possprite, obstacle): # square actually means rectangle. these are floors/walls
-	def __init__(self, lyr, pos, size, color=None, invisible=False, margins=None):
+	def __init__(self, lyr, pos, size, color=None, invisible=False, margins=None, img=None):
 		if color == None: color = [0, 0, 0]
 		
 		possprite.__init__(self, lyr, pos)
@@ -570,7 +701,10 @@ class squareobstacle(possprite, obstacle): # square actually means rectangle. th
 		if margins != None:
 			self.setmargins(*margins)
 		
-		if invisible:
+		if img != None:
+			img = load_image(img)
+			self.setimage(img, size=size)
+		elif invisible:
 			self.setinvisible(size)
 		else:
 			img = pygame.Surface(size)
@@ -581,10 +715,30 @@ class squareobstacle(possprite, obstacle): # square actually means rectangle. th
 		
 	def update(self):
 		possprite.update(self)
+		
+class decoration(squareobstacle):
+	def __init__(self, *args, **kargs):
+		squareobstacle.__init__(self, *args, **kargs)
+		self.physical = False
+
+class backgroundobstacle(squareobstacle):
+	def __init__(self, lyr, imgname, index):
+		self.index = index
+		
+		squareobstacle.__init__(self, lyr, roundlist([COORDS_HEIGHT, (COORDS_HEIGHT-500)/2.0]), [None, COORDS_HEIGHT + 500], img=imgname)
+		
+	def update(self):
+		squareobstacle.update(self)
+		
+		myrect = self.getrect()
+		width = myrect.right - myrect.left
+		center = self.layer.screentocoords([SCREEN_SIZE[0]/2, SCREEN_SIZE[1]/2])[0]
+		value = int(center / width) + self.index
+		self.pos = [value * width, self.pos[1]]
 
 class sidewall(squareobstacle): # for wallrunning
 	def __init__(self, lyr, pos, size, color=None, **kwargs):
-		if color == None: color = [0, 255, 0]
+		if color == None: color = [80, 80, 80]
 		
 		squareobstacle.__init__(self, lyr, pos, size, color, **kwargs)
 		self.physical = False
@@ -612,6 +766,7 @@ class winobstacle(squareobstacle): # win (level) if touched
 	
 def pause(message):
 	global paused, pausedmessage
+	
 	pausedmessage = message
 #	paused = True
 	lvl.meta = True
@@ -646,8 +801,6 @@ background.fill((250, 250, 250))
 screen.blit(background, (0, 0))
 pygame.display.flip()
 
-lvl = level()
-
 clock = pygame.time.Clock()
 
 paused = False
@@ -655,6 +808,20 @@ pausedmessage = None
 
 FONT_SIZE = 50
 font = pygame.font.Font(None, FONT_SIZE)
+
+def nextlevel():
+	global levelnumber, lvl
+	levelnumber += 1
+	if (levelnumber < len(levels.levels)):
+		lvl = level(levels.levels[levelnumber])
+		if levelnumber != 0:
+			pause("You won!\n\nPress Enter to continue to the next level")
+	else:
+		pause("There are no more levels left\n\nYou have beaten the game!")
+		exit()
+
+levelnumber = -1
+nextlevel()
 
 def keypressed(keys, validkeys):
 	for key in validkeys:
@@ -703,18 +870,18 @@ while True:
 			if playernum >= numctrls:
 				playernum = 0
 			if CHEATY_MODE:
-				psn.velocity[0] = 0
+				psn.runningdir = 0
 				if keypressed(keys, KEYRIGHT[playernum]):
-					psn.movingright = True
-				else:
-					psn.movingright = False
+					psn.runningdir = 1
 				if keypressed(keys, KEYLEFT[playernum]):
-					psn.velocity[0] = -RUNNINGSPEED
+					psn.runningdir = -1
 			if keypressed(keys, KEYSLIDE[playernum]):
 				if psn.slidingrecoverytimer >= SLIDINGRECOVERYTIME:
-					psn.doslide = True
+					psn.issliding = True
+					psn.updateimage()
 			else:
-				psn.doslide = False
+				psn.issliding = False
+				psn.updateimage()
 			if keypressed(keys, KEYJUMP[playernum]):
 				if WALLEFFECT in psn.effects and psn.walltimer < WALLTIME and psn.velocity[1] < WALLMAXVELOCITY:
 					psn.velocity[1] += WALLACCEL
