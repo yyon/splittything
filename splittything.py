@@ -14,11 +14,9 @@ if os.name == 'posix':
 		DVORAK = True
 
 #TODO:
-# Adding more comments (I need to do this)
-# Better graphics
 # Design levels
-# Level editor
-# grabbing on to walls
+# Level editor?
+# grabbing on to walls?
 
 # move level loading from metalayer to level
 # add a walljump timer
@@ -43,6 +41,7 @@ if os.name == 'posix':
 # Angles
 # Options (Such as resolution, keymap)
 # timer bars
+# Better graphics
 
 #Done:
 # Walljump
